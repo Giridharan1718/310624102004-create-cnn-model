@@ -6,8 +6,10 @@ venv/
 *.keras
 *.h5
 *.pkl
+*.pt
 models/
 dataset_7M.csv
 eco_driving_score.csv
+mpmodels/
 *.log
 .env

@@ -1,9 +1,21 @@
+# Core ML/DS
 pandas
 numpy
 scikit-learn
 tensorflow
+tensorflow-datasets
+datasets
+
+# Vision & Object Detection
+torch
+torchvision
+ultralytics
+mediapipe
+opencv-python
+scipy
+pillow
+
+# Web/API
 fastapi
 uvicorn
 joblib
-matplotlib
-seaborn

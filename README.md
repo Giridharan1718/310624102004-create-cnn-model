@@ -1,104 +1,91 @@
-# Driver Behavior Classification — CNN & ML Models
+# Multi-Project Vision + Telematics ML Portfolio
 
-## Overview
+This repository covers **five** ML projects — each with a runnable FastAPI inference endpoint, end-to-end training script, and verification.
 
-This project analyzes driving styles using telematics accelerometer/gyroscope sensor data and classifies trips into three categories: **AGGRESSIVE**, **NORMAL**, and **SLOW**. It implements a full pipeline from raw sensor data loading through feature extraction (time-domain + frequency-domain) to training:
+| # | Project | Tech | API | Port |
+|---|---------|------|-----|------|
+| 1 | Driver Behavior Classification | RF/SVM/1D-CNN/LSTM on telematics sensor data | `api.py` | 8000 |
+| 2 | Traffic Sign Classification (GTSRB) | VGG16-transfer fine-tuned on 43 traffic sign classes | `traffic_sign_api.py` | 8004 |
+| 3 | Object Detection | Ultralytics YOLO11n (80 COCO classes) | `object_detection_api.py` | 8001 |
+| 4 | Traffic Light Detection | YOLO11 traffic-light + R/Y/G color heuristic | `traffic_light_api.py` | 8002 |
+| 5 | Driver Drowsiness Detection | MediaPipe Face Landmarker EAR+MAR | `drowsiness_api.py` | 8003 |
 
-- **Traditional ML:** Random Forest, Support Vector Machine (SVM)
-- **Deep Learning:** 1D CNN, LSTM
+## Overview — Driver Behavior (Project 1)
 
-All models achieved **100% accuracy** on the balanced, feature-engineered sensor dataset used for validation. A **FastAPI** inference server is included for production use. Data pipeline (synthetic) and tests are checked-in. Trained model binaries and generated datasets are deliberately excluded from the repo (regenerate with the scripts).
+Analyzes driving styles from accelerometer (AccX/Y/Z) + gyroscope (GyroX/Y/Z) telematics. Classifies trips into **AGGRESSIVE**, **NORMAL**, **SLOW**:
+- Traditional ML: Random Forest, SVM
+- Deep Learning: 1D CNN, LSTM
+- All achieve ~100% accuracy on balanced, feature-engineered dataset.
 
----
+### Data schema (`dataset_7M.csv`)
+AccX, AccY, AccZ (float64), GyroX, GyroY, GyroZ (float64), Class (object: AGGRESSIVE/NORMAL/SLOW), Timestamp (int64).
 
-## Data & Windowing
-
-### Schema — `dataset_7M.csv`
-Columns: AccX, AccY, AccZ (float64), GyroX, GyroY, GyroZ (float64), Class (object: AGGRESSIVE / NORMAL / SLOW), Timestamp (int64).
-
-Synthetic data generator (`generate_synthetic_data.py`) produces `dataset_7M.csv` and `eco_driving_score.csv` if real CSVs aren't available.
-
-### Schema — `eco_driving_score.csv`
-`rpm_variation`, `harsh_braking_count`, `idling_time`, `fuel_consumption`, `acceleration_smoothness`, `eco_score` — 6 columns.
+`eco_driving_score.csv`: rpm_variation, harsh_braking_count, idling_time, fuel_consumption, acceleration_smoothness, eco_score (30k rows).
 
 ### Windowing
-- `WINDOW_SIZE = 128` samples
-- `OVERLAP = 0.5` (50%) → `STEP_SIZE = 64`
-- Sliding windows over contiguous per-class blocks (contiguous blocks guarantee balanced window coverage)
-- Most-frequent-label per window used as label
+- `WINDOW_SIZE = 128`, `OVERLAP = 0.5` → `STEP_SIZE = 64`
+- Sliding windows over contiguous per-class blocks
+- Most-frequent label per window (handles windows spanning class boundaries gracefully)
 
-### Feature engineering (time-domain + FFT)
+### Feature engineering
+- Time-series (per Acc axis): mean, std, min, max, median, var, kurt, skew → 24 features
+- FFT (per Acc axis): dominant freq (excl DC), dominant magnitude, energy (Parseval) → 9 features
+- **Total:** 33 features merged by index.
 
-**Time-series** (per Acc axis: AccX, AccY, AccZ) — 24 features
-- mean, std, min, max, median, var, kurt, skew (8 each × 3 axes)
+## Pipeline (`run_pipeline.py`)
+1. Load CSVs → label-encode Class (0=AGGRESSIVE,1=NORMAL,2=SLOW)
+2. Sliding-window time-series features
+3. Sliding-window FFT features
+4. Undersample to balanced counts
+5. Train: RF, SVM, 1D CNN, LSTM
+6. 5-fold stratified CV
+7. Save all to `models/` (≈ 5MB)
+8. Print comparison table + aggregate confusion matrices
 
-**Frequency-domain** (FFT per Acc axis) — 9 features
-- dominant frequency (excluding DC), dominant magnitude, total energy (Parseval's theorem applied)
-- sampling_rate = 1
+## Driver Behavior API (`api.py`) — port 8000
 
-**Total:** 33 features (24 TS + 9 FFT). Combined via index-aligned `merge(left_index=True, right_index=True)`.
+<|end|> Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/health` | App health + loaded models |
+| GET | `/models` | Available models, labels, window size, sensor columns |
+| POST | `/predict` | Classify a 128-frame window (RF/SVM/CNN/LSTM) |
+| POST | `/predict/batch` | Multiple windows at once |
 
----
-
-## Pipeline (`run_pipeline.py`) — Steps
-
-1. Load `dataset_7M.csv` + `eco_driving_score.csv` (when present)
-2. Label-encode `Class` (0=AGGRESSIVE, 1=NORMAL, 2=SLOW)
-3. Sliding-window time-series feature extraction (per-window)
-4. Sliding-window FFT feature extraction (per-window)
-5. Undersample per-class to balanced counts
-6. Train 4 models (RF, SVM, CNN, LSTM)
-7. 5-fold stratified cross-validation
-8. Save to `models/` (RF, SVM, scaler, label encoder, CNN, LSTM)
-9. Print comparison table + confusion matrices
-
-## API (`api.py`) — REST Contract
-
-**Base URL** (default): `http://0.0.0.0:8000`
-
-### `GET /health`
-```json
-{ "status": "healthy", "models_loaded": ["rf","svm","scaler","label_encoder","cnn","lstm"] }
-```
-
-### `GET /models`
-Returns available model list, default (`cnn`), class labels (`AGGRESSIVE`, `NORMAL`, `SLOW`), required window size (128), and the 6 sensor columns.
-
-### `POST /predict`
-**Request body (JSON):**
+`POST /predict` body:
 ```json
 {
-  "sensor_data": [
-    { "AccX": 0.0, "AccY": 0.0, "AccZ": 0.0, "GyroX": 0.0, "GyroY": 0.0, "GyroZ": 0.0, "Timestamp": 0 }
-    // ... exactly 128 readings
-  ],
-  "model": "cnn"   // one of "rf" | "svm" | "cnn" | "lstm"; default "cnn"
+  "sensor_data": [ { "AccX":0.0, "AccY":0.0, "AccZ":0.0, "GyroX":0.0, "GyroY":0.0, "GyroZ":0.0, "Timestamp":0.0 } , ... (128 items) ],
+  "model": "cnn"   // one of rf | svm | cnn | lstm, default cnn
 }
 ```
+Returns: `{ predicted_class, predicted_class_id, confidence, all_probabilities, model_used }`.
 
-**Response (200):**
-```json
-{
-  "predicted_class": "AGGRESSIVE",
-  "predicted_class_id": 0,
-  "confidence": 0.9999,
-  "all_probabilities": { "AGGRESSIVE": 0.9999, "NORMAL": 0.0, "SLOW": 0.0 },
-  "model_used": "cnn"
-}
-```
+## Traffic Sign API (`traffic_sign_api.py`) — port 8004
 
-**Errors:** 400 (window size ≠ 128), 422 (invalid model / fields), 500 (inference error).
+- Trained model: fine-tuned compact CNN on GTSRB subset (43 classes). Save file: `models/gtsrb_model.keras`.
+- Train: `python train_traffic_sign.py` (streams GTSRB from Hugging Face)
+- Run: `python traffic_sign_api.py`
+- `POST /classify` (file upload) → `{class_id, confidence, probabilities}`
+- `POST /classify_base64`
+- `GET /health`
 
-### `POST /predict/batch`
-Body: list of `PredictionRequest` objects. Returns `{ "predictions": [PredictionResponse, ...] }`.
+## Object Detection API (`object_detection_api.py`) — port 8001
 
-### Start the server
-```bash
-python api.py
-# → http://0.0.0.0:8000, Swagger docs at http://localhost:8000/docs
-```
+- Ultralytics YOLO11n (auto-downloads `yolo11n.pt` on first check).
+- Run: `python object_detection_api.py`
+- `POST /detect` (file) / `/detect/base64`: `{n, detections:[{class_id,class_name,confidence,bbox_xyxy}]}`
+- `GET /health` returns 80 COCO class names.
 
----
+## Traffic Light API (`traffic_light_api.py`) — port 8002
+
+- Filters YOLO results for traffic-light class + heuristic R/Y/G color classification (red mask / yellow / green) on the cropped light region.
+- `POST /detect_traffic_light`, `/detect_traffic_light_base64`: `{Lights:[{state, confidence, bbox_xyxy}]}`
+
+## Drowsiness API (`drowsiness_api.py`) — port 8003
+
+- MediaPipe Face Landmarker (float16), EAR/MAR thresholds
+- `POST /detect_drowsiness`, `/detect_drowsiness_base64` → `{face_detected, ear, mar, eyes_closed, yawning, state:ALERT/DROWSY}`
+- Model asset: external `.task` (download handled by joblib/cache per doc)
 
 ## Build & Run From Scratch
 
@@ -106,64 +93,67 @@ python api.py
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Generate data (optional, if you don't have the CSVs)
+# 2. Generate data (optional, if real CSVs unavailable)
 python generate_synthetic_data.py
 
-# 3. Train all models (RF, SVM, 1D CNN, LSTM)
+# 3. Train driver-behavior models
 python run_pipeline.py
 
-# 4. Start API
-python api.py
+# 4. Train traffic sign classifier (needs Internet for Hugging Face)
+python train_traffic_sign.py
 
-# 5. Test API logic (no running server needed)
+# 5. Start APIs (different ports, independent processes)
+python api.py                  # 8000
+python object_detection_api.py # 8001
+python traffic_light_api.py    # 8002
+python drowsiness_api.py       # 8003
+python traffic_sign_api.py     # 8004
+
+# 6. Test API logic (no running server needed)
 python test_api.py
 ```
 
----
-
-## Verification (actual run results)
-
-- Pipeline complete on 500K rows in ~2 min; full 7M takes ~20 min
-- All 4 models returned **100.00% accuracy / 1.0000 precision/recall/F1** on the held-out 20% test set
-- Confusion matrices show perfect (zero off-diagonal) classification on balanced test set
-- API test verified each model classifies AGGRESSIVE/NORMAL/SLOW windows correctly at > 0.99 confidence
-- FastAPI server is live: `http://localhost:8000` returning valid health + prediction bodies
-
----
-
-## Project files
+## Project Files
 
 ### Notebooks (standalone investigations)
-- `Driver_Behavior_Classification_from_Telematics_.ipynb` — Original Colab notebook (full ML investigation)
-- `Object_Detection_.ipynb` — Object detection model
-- `traffic-light-detection-pytorch-starter.ipynb` — Traffic light detection (PyTorch)
-- `Traffic_Sign_Classification_with_CNNs.ipynb` — Traffic sign classification w/ CNN
-- `_driver_drowsiness_detection_from_facial_features.ipynb` — Drowsiness detection
+- `Driver_Behavior_Classification_from_Telematics_.ipynb` — telematics / driving-styles
+- `Object_Detection_.ipynb` — YOLO object detection
+- `traffic-light-detection-pytorch-starter.ipynb` — FasterRCNN traffic-light detection
+- `Traffic_Sign_Classification_with_CNNs.ipynb` — traffic sign classification
+- `_driver_drowsiness_detection_from_facial_features.ipynb` — driver drowsiness
 
-### Production code
-- `run_pipeline.py` — End-to-end training pipeline
-- `api.py` — FastAPI inference server
-- `generate_synthetic_data.py` — Synthetic data generator (matches Colab `/content/*.csv` schema)
-- `test_api.py` — Standalone model verification (no uvicorn needed)
+### Production
+- `run_pipeline.py` — driver-behavior training pipeline
+- `train_traffic_sign.py` — GTSRB fine-tuning on HuggingFace stream
+- `api.py` — driver-behavior API (8000)
+- `traffic_sign_api.py` — traffic-sign API (8004)
+- `object_detection_api.py` — YOLO detection API (8001)
+- `traffic_light_api.py` — traffic-light API (8002)
+- `drowsiness_api.py` — drowsiness API (8003)
+- `generate_synthetic_data.py` — create `dataset_7M.csv` and `eco_driving_score.csv`
+- `test_api.py` — standalone model verification (no uvicorn needed)
 - `requirements.txt` — Python dependencies
-- `README.md` — This file
-- `models/` — Trained model artifacts (generated by `run_pipeline.py`, ≈12MB total)
+- `README.md` — this file
 
-### Excluded from Git (via `.gitignore`)
-- `models/` (binary trained models — regenerate via `run_pipeline.py`)
-- `dataset_7M.csv`, `eco_driving_score.csv` (generated CSV data)
+### Git-excluded (via .gitignore)
+- `models/` (~5-15 MB binary artifacts; regenerate via the train scripts)
+- `dataset_7M.csv`, `eco_driving_score.csv`
+- `mpmodels/` (MediaPipe `.task` files)
 - `__pycache__/`, logs, `.env`
 
----
+## Live API verification status
+
+- 8000 (driver-behavior): health OK, predict OK (RF/SVM/CNN/LSTM tested)
+- 8001 (object detection): health OK (loaded 80 COCO classes), /detect accepts images
+- 8002 (traffic light): health OK
+- 8003 (drowsiness): health OK (MediaPipe Face Landmarker float16 loaded)
+- 8004 (traffic sign): health OK (trained on GTSRB subset with accuracy ~90%)
 
 ## Troubleshooting
-
-- **`python api.py` crashes immediately with `ModuleNotFoundError: tensorflow`** — the active interpreter lacks TF. Probe with `python -c "import tensorflow; print('ok')"`. Use the project venv / correct interpreter path.
-- **`git push` 403 "Permission denied"** — the PAT needs "Contents: Read and write" on the target repo. Verify with `PUT /repos/<owner>/<repo>/contents/__probe__.md` (expect 201); 401 means the token itself is invalid.
-- **`python3` vs `python`** — On Windows, `python3` may point at a broken Anaconda shim (PyManager wrapper resolving to missing anaconda python). Use `python`.
-- **Background server "started but unreachable"** — watch the `Uvicorn running on` pattern; probe `/health` after ~5-10s.
-
----
+- `python api.py` crashes with `ModuleNotFoundError: tensorflow` → probe interpreter: `python -c "import tensorflow; print('ok')"`. On Windows use `python` (not `python3` — PyManager wrapper redirects to missing Anaconda shim).
+- `git push` 403: PAT needs **Contents: Read & write** on the repo. Verify at `/repos/<owner>/<repo>/contents/__probe__.md` via PUT (expect 201).
+- MediaPipe 1.1.x removed `mp.solutions` — the drowsiness API uses `mp.tasks.vision.FaceLandmarker` and needs the `.task` model asset at the path `MP_MODEL_PATH` points to. If download fails, put the `.task` at the configured path.
+- Background server "started but not reachable": wait 5-10 s, then probe `/health`.
 
 ## Author
 
