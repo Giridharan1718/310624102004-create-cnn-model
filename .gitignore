@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.keras
+*.h5
+*.pkl
+models/
+dataset_7M.csv
+eco_driving_score.csv
+*.log
+.env
