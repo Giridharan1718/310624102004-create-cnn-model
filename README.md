@@ -108,6 +108,14 @@ Git-ignored (auto-regenerated / auto-downloaded):
 - `mpmodels/` (.task files)
 - `__pycache__/`, `.venv/`, `yolo11n.pt`
 
+## Requirements
+
+- Python 3.10 or 3.11 (gated to 3.10-3.12 in CI)
+- `pip` loadable packages listed in `requirements.txt` (TensorFlow, FastAPI, Ultralytics, MediaPipe, scikit-learn, numpy, pillow, pandas, etc.)
+- ~5 GB free disk for data + models + cached YOLO / MediaPipe assets
+- Internet for the GTSRB + YOLO + MediaPipe downloads on first run
+- GPU recommended but not required (CPU path verified here)
+
 ## Quickstart
 
 1. Clone and install:
@@ -305,6 +313,14 @@ Snapshot:
   ```
 - Production recommendation: one Uvicorn process per port behind Nginx / Caddy; CORS only for trusted origins; model files on a read-only volume.
 - `models/` is excluded from git because of binary size — regenerate via `train_traffic_sign.py` + `run_pipeline.py`.
+
+## Roadmap
+
+- Increase per-class sample counts; push validation accuracy beyond 99.5%
+- Quantize / export to ONNX for leaner service deployment
+- Per-project Dockerfile + docker-compose bundling all five services
+- CI smoke tests against every /health endpoint
+- Add real screenshots and sample outputs to the README
 
 ## Contributing
 
