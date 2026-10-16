@@ -324,6 +324,8 @@ Snapshot:
 
 ## Contributing
 
+- CI template available at `docs/ci.example.yml` (copy to `.github/workflows/ci.yml` to enable; needs GitHub token with `workflow` scope).
+
 - PRs welcome; please open an issue first to discuss major changes.
 - Style checks: `python -m py_compile file.py` or `python -c "import ast; ast.parse(open('f').read())"`.
 - Path quirks are documented for both macOS and Windows; CI runs on Python 3.10-3.12.
