@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+cor_origins_env = os.getenv("CORS_ORIGINS")
+CORS_ORIGINS = ([o.strip() for o in cor_origins_env.split(",") if o.strip()] if cor_origins_env else ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"])
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import joblib
@@ -19,7 +21,7 @@ import tensorflow as tf
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent
-MODELS_DIR = PROJECT_ROOT / 'models'
+MODELS_DIR = Path(os.getenv("DRIVER_MODELS_DIR", str(PROJECT_ROOT / "models")))
 
 # Global model storage
 models = {}
@@ -72,22 +74,24 @@ def extract_timeseries_features_window(window):
 
 
 def load_models():
-    """Load all trained models"""
-    global models
-    
-    print("Loading models...")
-    
-    # Load traditional ML models
-    models['rf'] = joblib.load(MODELS_DIR / 'rf_model.pkl')
-    models['svm'] = joblib.load(MODELS_DIR / 'svm_model.pkl')
-    models['scaler'] = joblib.load(MODELS_DIR / 'scaler.pkl')
-    models['label_encoder'] = joblib.load(MODELS_DIR / 'label_encoder.pkl')
-    
-    # Load deep learning models
-    models['cnn'] = tf.keras.models.load_model(MODELS_DIR / 'cnn_model.keras')
-    models['lstm'] = tf.keras.models.load_model(MODELS_DIR / 'lstm_model.keras')
-    
-    print("All models loaded successfully")
+    """Load all trained models (non-fatal if absent)."""
+    global models, MODEL_LOAD_ERROR
+    try:
+        print("Loading models...")
+        if not MODELS_DIR.exists() or not (MODELS_DIR / "rf_model.pkl").exists():
+            raise FileNotFoundError("missing model artifacts; run run_pipeline.py")
+        models["rf"] = joblib.load(MODELS_DIR / "rf_model.pkl")
+        models["svm"] = joblib.load(MODELS_DIR / "svm_model.pkl")
+        models["scaler"] = joblib.load(MODELS_DIR / "scaler.pkl")
+        models["label_encoder"] = joblib.load(MODELS_DIR / "label_encoder.pkl")
+        models["cnn"] = tf.keras.models.load_model(MODELS_DIR / "cnn_model.keras")
+        models["lstm"] = tf.keras.models.load_model(MODELS_DIR / "lstm_model.keras")
+        MODEL_LOAD_ERROR = None
+        print("All models loaded successfully")
+    except Exception as exc:
+        models.clear()
+        MODEL_LOAD_ERROR = "Driver-behavior models unavailable; run run_pipeline.py first."
+        print(MODEL_LOAD_ERROR, exc)
 
 
 @asynccontextmanager
@@ -108,7 +112,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -147,6 +151,11 @@ class HealthResponse(BaseModel):
 # --- API Endpoints ---
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
+    if MODEL_LOAD_ERROR:
+        return HealthResponse(
+            status="unavailable",
+            models_loaded=[]
+        )
     return HealthResponse(
         status="healthy",
         models_loaded=list(models.keys())
@@ -172,7 +181,9 @@ async def list_models():
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(request: PredictionRequest):
     if not models:
-        raise HTTPException(status_code=503, detail="Models not loaded")
+        raise HTTPException(status_code=503, detail=MODEL_LOAD_ERROR or "Models not loaded")
+    if MODEL_LOAD_ERROR:
+        raise HTTPException(status_code=503, detail=MODEL_LOAD_ERROR)
     
     # Convert to DataFrame
     df = pd.DataFrame([r.model_dump() for r in request.sensor_data])
@@ -231,7 +242,7 @@ async def predict(request: PredictionRequest):
         )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Prediction failed.")
 
 
 @app.post("/predict/batch")

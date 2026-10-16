@@ -6,7 +6,7 @@
 [![YOLO](https://img.shields.io/badge/Object%20Detection-YOLO11n-7C3AED.svg)](https://docs.ultralytics.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](#license)
 
-Production-grade multi-project machine-learning portfolio — **five independently deployed ML services** behind a FastAPI HTTP interface, covering computer vision (object detection, traffic sign, traffic light, drowsiness) plus a telematics-based driver behavior classifier. Every service ships with training code, inference API, health check, and an end-to-end verification path.
+Multi-project ML portfolio: **five** ML project scripts/services with runnable FastAPI inference endpoints. Claims of accuracy and latency are labeled as measured estimates.
 
 ## Table of contents
 
@@ -279,7 +279,7 @@ All four models hit **~100% test accuracy** on the balanced, feature-engineered 
 
 ## Live service status
 
-All endpoints verified live on a Windows 11 / Python 3.11 box as of the last handoff. Probe yourself:
+Measured end-to-end on a Windows 11 / Python 3.11 box (single run, no guarantees). 99.4% is model validation from a single training run; other numbers are estimates/unverified.
 
 ```
 for p in 8000 8001 8002 8003 8004; do echo "== $p =="; curl -s http://localhost:$p/health; echo; done

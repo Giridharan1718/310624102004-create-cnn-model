@@ -19,3 +19,10 @@ pillow
 fastapi
 uvicorn
 joblib
+python-dotenv
+
+# Tests (optional dev)
+pytest
+starlette
+httpx
+pytest-asyncio

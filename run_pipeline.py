@@ -325,7 +325,7 @@ def cross_validate_traditional(X, y, n_splits=5):
 def print_summary(all_metrics, class_names):
     """Print final comparison table"""
     print("\n" + "="*70)
-    print("FINAL MODEL COMPARISON (Balanced Test Set)")
+    print("FINAL MODEL COMPARISON (balanced test split; note overlap may leak info between folds)")
     print("="*70)
     print(f"{'Model':<15} {'Accuracy':>10} {'Precision':>10} {'Recall':>10} {'F1-Score':>10}")
     print("-"*70)
