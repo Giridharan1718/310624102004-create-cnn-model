@@ -59,27 +59,21 @@ print(f'Collected X={X.shape}, y={y.shape} in {time.time()-t0:.0f}s; classes={le
 
 # Train/val split
 Xtr, Xva, ytr, yva = train_test_split(X, y_one, test_size=0.2, random_state=42, stratify=y)
-Xtrn = Xtr.astype("float32") / 255.0
-Xvan = Xva.astype("float32") / 255.0
+Xtrn = Xtr.astype("float32")
+Xvan = Xva.astype("float32")
+# vgg16 preprocess uses VGG16 preprocessing centered inputs
+from tensorflow.keras.applications.vgg16 import preprocess_input as vgg_preprocess
+Xtrn = vgg_preprocess(Xtrn.copy())
+Xvan = vgg_preprocess(Xvan.copy())
 print('split: train', Xtrn.shape, Xvan.shape)
 
-# --- Build light stacked CNN for GTSRB (preprocessed normalized 32x32 RGB) ---
-m = keras.Sequential([
-    layers.Input(shape=(IMG_SIZE, IMG_SIZE, 3)),
-    layers.Conv2D(32, 3, activation='relu', padding='same'),
-    layers.MaxPooling2D(),
-    layers.Conv2D(64, 3, activation='relu', padding='same'),
-    layers.MaxPooling2D(),
-    layers.Conv2D(128, 3, activation='relu', padding='same'),
-    layers.MaxPooling2D(),
-    layers.Flatten(),
-    layers.Dense(256, activation='relu'),
-    layers.Dropout(0.3),
-    layers.Dense(NUM_CLASSES, activation='softmax'),
-])
+# --- Build VGG16-transfer CNN for GTSRB (VGG16 preprocess + frozen transfer head) ---
+base = VGG16(weights='imagenet', include_top=False, input_shape=(IMG_SIZE, IMG_SIZE, 3))
+base.trainable = False
+m = keras.Sequential([base, layers.GlobalAveragePooling2D(), layers.Dense(256, activation='relu'), layers.Dropout(0.3), layers.Dense(NUM_CLASSES, activation='softmax')])
 m.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-print('training compact CNN...')
-hist = m.fit(Xtrn, ytr, epochs=5, batch_size=64, validation_data=(Xvan, yva), verbose=1)
+print('training VGG16-transfer head ...')
+hist = m.fit(Xtrn, ytr, epochs=8, batch_size=32, validation_data=(Xvan, yva), verbose=1)
 # quick eval
 pred = m.predict(Xvan, verbose=0)
 acc = accuracy_score(np.argmax(yva, axis=1), np.argmax(pred, axis=-1))
@@ -88,4 +82,4 @@ m.save(os.path.join(MODELS_DIR, 'gtsrb_model.keras'))
 # metadata classes
 with open(os.path.join(MODELS_DIR, 'gtsrb_labels.json'), 'w') as f:
     json.dump({'classes': sorted(list(set(y.tolist()))) , 'num_classes':43}, f)
-print('saved:', os.path.join(MODELS_DIR, 'gtsrb_vgg16.keras'))
+print('saved:', os.path.join(MODELS_DIR, 'gtsrb_model.keras'))

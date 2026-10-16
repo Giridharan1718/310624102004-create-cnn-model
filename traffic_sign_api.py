@@ -6,6 +6,7 @@ from PIL import Image
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from tensorflow import keras
+from tensorflow.keras.applications.vgg16 import preprocess_input as vgg_preprocess
 
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'gtsrb_model.keras')
 model = None
@@ -25,8 +26,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
 
 def preprocess(img):
     img = img.convert('RGB').resize((IMG, IMG))
-    arr = np.array(img).astype('float32') / 255.0
-    return arr[None, ...]
+    arr = np.array(img).astype('float32')
+    return vgg_preprocess(arr)[None, ...]
 
 def classify(img):
     prob = model.predict(preprocess(img), verbose=0)[0]
